@@ -7,16 +7,24 @@ from typing import Annotated, TypedDict
 
 from dotenv import load_dotenv
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
+from tavily import TavilyClient
 
-from agents.tools.flights_finder import flights_finder
-from agents.tools.hotels_finder import hotels_finder
+from langchain_core.tools import tool
 
 _ = load_dotenv()
+
+tavily_client = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
+
+@tool
+def search_tool(query: str):
+    """A tool for performing web searches for flights and hotels."""
+    return tavily_client.search(query, search_depth="advanced")
+
 
 CURRENT_YEAR = datetime.datetime.now().year
 
@@ -38,7 +46,7 @@ TOOLS_SYSTEM_PROMPT = f"""You are a smart travel agency. Use the tools to look u
     Total: $3,488
     """
 
-TOOLS = [flights_finder, hotels_finder]
+TOOLS = [search_tool]
 
 EMAILS_SYSTEM_PROMPT = """Your task is to convert structured markdown-like text into a valid HTML email body.
 
@@ -123,7 +131,7 @@ class Agent:
 
     def __init__(self):
         self._tools = {t.name: t for t in TOOLS}
-        self._tools_llm = ChatOpenAI(model='gpt-4o').bind_tools(TOOLS)
+        self._tools_llm = ChatGoogleGenerativeAI(model='gemini-1.5-flash').bind_tools(TOOLS)
 
         builder = StateGraph(AgentState)
         builder.add_node('call_tools_llm', self.call_tools_llm)
@@ -148,7 +156,7 @@ class Agent:
 
     def email_sender(self, state: AgentState):
         print('Sending email')
-        email_llm = ChatOpenAI(model='gpt-4o', temperature=0.1)  # Instantiate another LLM
+        email_llm = ChatGoogleGenerativeAI(model='gemini-1.5-flash', temperature=0.1)  # Instantiate another LLM
         email_message = [SystemMessage(content=EMAILS_SYSTEM_PROMPT), HumanMessage(content=state['messages'][-1].content)]
         email_response = email_llm.invoke(email_message)
         print('Email content:', email_response.content)
